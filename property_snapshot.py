@@ -11,10 +11,10 @@ import sys
 import datetime
 import requests
 import shapely
-import matplotlib.pyplot as plt
-import contextily as cx
 import googlemaps
 import psycopg2
+# import matplotlib.pyplot as plt
+# import contextily as cx
 
 dotenv.load_dotenv()
 

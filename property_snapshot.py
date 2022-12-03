@@ -13,6 +13,7 @@ import requests
 import shapely
 import googlemaps
 import psycopg2
+import gdown
 # import matplotlib.pyplot as plt
 # import contextily as cx
 
@@ -21,8 +22,9 @@ dotenv.load_dotenv()
 
 @st.cache(allow_output_mutation=True)
 def load_parcels():
-    parcels_loc = '/home/peishi/basta/Data/TCAD/Shapefiles_2022-04-19/parcels.parquet'
-    parcels = gpd.read_parquet(parcels_loc)
+    url = 'https://drive.google.com/uc?id=1ifjaYmsKYha_vr2DxsDN58swHU7lF_k9&confirm=t'
+    gdown.download(url, output='tcad_parcels.parquet', quiet=True)  # GDrive download of parcels
+    parcels = gpd.read_parquet('./tcad_parcels.parquet')
     parcels.rename(columns={'PID_10':'parcel_id', 'PROP_ID':'property_id'}, inplace=True)
     return parcels
 
@@ -113,16 +115,18 @@ def streamlit_app():
         propid = propid[0]
     st.write(f'Found TCAD parcel with property id: {propid}')
     propdat = get_property_data(propid)
+    st.subheader('Property Info')
     if not propdat.empty:
-        st.subheader('Property Info')
         st.write(propdat)
 
     evdf = get_evictions(propid)
+    st.subheader('Evictions')
     if not evdf.empty:
-        st.subheader('Evictions')
         st.write(f'There have been {len(evdf)} evictions at this property')
         st.write(f'Here are the case numbers for those evictions')
         st.write(evdf.tolist())
+    else:
+        st.write('We do not have records (since 2014) of evictions at this property')
         
 
 

@@ -22,7 +22,7 @@ dotenv.load_dotenv()
 
 @st.cache(allow_output_mutation=True)
 def load_parcels():
-    url = 'https://drive.google.com/uc?id=1ifjaYmsKYha_vr2DxsDN58swHU7lF_k9&confirm=t'
+    url = os.getenv('PARCELS_URL')
     gdown.download(url, output='tcad_parcels.parquet', quiet=True)  # GDrive download of parcels
     parcels = gpd.read_parquet('./tcad_parcels.parquet')
     parcels.rename(columns={'PID_10':'parcel_id', 'PROP_ID':'property_id'}, inplace=True)
@@ -96,6 +96,8 @@ def streamlit_app():
     data_load_state.text('TCAD parcels loaded')
 
     st.header('Results')
+    if not address:
+        return
     accuracy, lat, lng = geocode_addr(address)
     df = pd.DataFrame([[lat, lng]], columns=['lat', 'lon'])
     st.write(f"Accuracy of geocode result: {accuracy}. Coordinates: {lat}, {lng}")
@@ -116,19 +118,31 @@ def streamlit_app():
     st.write(f'Found TCAD parcel with property id: {propid}')
     propdat = get_property_data(propid)
     st.subheader('Property Info')
-    if not propdat.empty:
-        st.write(propdat)
+    if propdat.empty:
+        st.write('We couldn\'t locate data for that parcel, sorry!')
+    else:
+        st.write(f"Parcel ID: {propdat['parcel_id'].values}")
+        st.write(f"Property ID: {propdat['property_id'].values}")
+        st.write(f"TCAD's parcel address: {propdat['parcel_address'].values}")
+        st.write(f"Owner (Sept. 2022): {propdat['owner_sep_2022'].values}")
+        st.write(f"Owner address: {propdat['owner_address'].values}")
+        st.write(f"DBA (Sept. 2022): {propdat['dba_sep_2022'].values}")
+        
+        st.subheader('Housing Subsidies')
+        st.write(f"CARES Act protections? (as of Jul 2022): {propdat['cares_act_july_2022'].values}")
+        st.write(f"Federal housing subsidies? (as of Jul 2022): {propdat['nhpd_july_2022'].values}")
+        st.write(f"Accepted Housing Choice Vouchers (Section 8)?: {propdat['housing_choice_vouchers'].values}")
+
 
     evdf = get_evictions(propid)
     st.subheader('Evictions')
-    if not evdf.empty:
+    if evdf.empty:
+        st.write('We do not have records (since 2014) of evictions at this property')
+    else:
         st.write(f'There have been {len(evdf)} evictions at this property')
         st.write(f'Here are the case numbers for those evictions')
         st.write(evdf.tolist())
-    else:
-        st.write('We do not have records (since 2014) of evictions at this property')
         
-
 
 if __name__ == "__main__":
     streamlit_app()

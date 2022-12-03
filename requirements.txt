@@ -1,0 +1,12 @@
+gspread
+numpy
+oauth2client
+pandas
+psycopg2-binary
+python-dotenv
+shapely==1.8.5.post1
+sqlalchemy==1.4.39
+pygeos==0.13
+geopandas==0.10.2
+pyarrow==7.0.0
+urllib3==1.25.11

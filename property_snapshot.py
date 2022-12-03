@@ -1,5 +1,4 @@
 import streamlit as st
-from google.oauth2 import service_account
 import gspread
 import dotenv
 import os

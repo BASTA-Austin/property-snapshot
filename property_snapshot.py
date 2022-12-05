@@ -21,15 +21,6 @@ from sqlalchemy import create_engine
 dotenv.load_dotenv()
 
 
-@st.cache(allow_output_mutation=True)
-def load_parcels():
-    url = os.getenv('PARCELS_URL')
-    gdown.download(url, output='tcad_parcels.parquet', quiet=True)  # GDrive download of parcels
-    parcels = gpd.read_parquet('./tcad_parcels.parquet')
-    parcels.rename(columns={'PID_10':'parcel_id', 'PROP_ID':'property_id'}, inplace=True)
-    return parcels
-
-
 @st.cache
 def geocode_addr(addr):
     gmaps_key = os.getenv('GMAPS_API_KEY')
@@ -60,10 +51,6 @@ def sjoin_on_coord(lat, lng):
         ST_Within( ST_SetSRID(ST_Point({lng}, {lat}), 4326), geometry );
     """
     df = gpd.GeoDataFrame.from_postgis(sql, conn, geom_col='geometry')      
-    
-    # addy_coords = gpd.points_from_xy([lng], [lat])
-    # df = gpd.GeoDataFrame(geometry=addy_coords, crs='EPSG:4326')
-    # df = gpd.sjoin(df, parcels, how='left', predicate='within')
     if df.empty:
         return None
     else:
@@ -75,7 +62,7 @@ def get_evictions(pid):
     conn = psycopg2.connect(os.getenv('EVICTIONS_DATABASE_URL'))
     data = pd.read_sql_query(
         f"""
-        SELECT * FROM spatial_joined_data WHERE property_id='{pid}'
+        SELECT * FROM spatial_joined_data WHERE property_id='{pid}';
         """,
         conn
     )
@@ -87,7 +74,7 @@ def get_property_data(pid):
     conn = psycopg2.connect(os.getenv('SNAPSHOT_DATABASE_URL'))
     data = pd.read_sql_query(
         f"""
-        SELECT * FROM property_snapshot WHERE property_id='{pid}'
+        SELECT * FROM property_snapshot WHERE property_id='{pid}';
         """,
         conn
     )
@@ -95,12 +82,13 @@ def get_property_data(pid):
 
 
 @st.cache
-def find_by_owner_add(propdf):
-    owneradd = propdf['owner_address'].values[0]
+def find_by_owner_add(propdf, pid):
+    owneradd = propdf['Owner address'].values[0]
     conn = psycopg2.connect(os.getenv('SNAPSHOT_DATABASE_URL'))
     data = pd.read_sql_query(
         f"""
         SELECT * FROM property_snapshot WHERE owner_address='{owneradd}'
+        AND property_id NOT IN ('{pid}');
         """,
         conn
     )
@@ -108,6 +96,7 @@ def find_by_owner_add(propdf):
 
 
 def streamlit_app():
+    st.set_page_config(layout="centered")
     st.title('BASTA Property Snapshot')
     
     st.sidebar.title('About')
@@ -137,7 +126,8 @@ def streamlit_app():
         return
     accuracy, lat, lng = geocode_addr(address)
     df = pd.DataFrame([[lat, lng]], columns=['lat', 'lon'])
-    st.write(f"Accuracy of geocode result: {accuracy}. Coordinates: {lat}, {lng}")
+    st.write(f"Accuracy of geocode result: **`{accuracy}`**")
+    st.write(f"Coordinates: **`{lat}`**, **`{lng}`**")
 
     if not (lat and lng):
         return
@@ -152,27 +142,49 @@ def streamlit_app():
         st.write(f'Found more than one property: {propid[:]}')
     else:
         propid = propid[0]
-    st.write(f'Found TCAD parcel with property id: {propid}')
+    st.success(f'Found TCAD parcel')
+    st.metric(label='Property ID', value=f'{propid}')
+    tcadlink = f'https://stage.travis.prodigycad.com/property-detail/{propid}'
+    st.write(f"TCAD page link: [{tcadlink}]({tcadlink})")
     propdat = get_property_data(propid)
     st.subheader('Property Info')
     if propdat.empty:
         st.write('We couldn\'t locate data for that parcel, sorry!')
     else:
-        st.write(f"Parcel ID: {propdat['parcel_id'].values}")
-        st.write(f"Property ID: {propdat['property_id'].values}")
-        st.write(f"TCAD's parcel address: {propdat['parcel_address'].values}")
-        st.write(f"Owner (Sept. 2022): {propdat['owner_sep_2022'].values}")
-        st.write(f"Owner address: {propdat['owner_address'].values}")
-        st.write(f"DBA (Sept. 2022): {propdat['dba_sep_2022'].values}")
-        
+        propdat.rename(
+            columns={
+                'parcel_id': 'Parcel ID',
+                'property_id': 'Property ID',
+                'parcel_address': 'TCAD parcel address',
+                'owner_sep_2022': 'Owner (as of Sept. 2022)',
+                'owner_address': 'Owner address',
+                'dba_sep_2022': 'DBA (as of Sept. 2022)',
+                'cares_act_july_2022': 'CARES Act protections? (known Jul 2022)',
+                'cares_act_id': 'NLIHC CARES Act database ID',
+                'nhpd_july_2022': 'Federal housing subsidies? (known Jul 2022)',
+                'nhpd_id':  'National Housing Preservation Database ID',
+                'housing_choice_vouchers': 'Accepted Housing Choice Vouchers (Section 8)?'
+            },
+            inplace=True
+        )
+        st.write(propdat[['Parcel ID', 'Property ID', 'TCAD parcel address', 'Owner (as of Sept. 2022)',
+            'Owner address', 'DBA (as of Sept. 2022)']].transpose())
+
         st.subheader('Housing Subsidies')
-        st.write(f"CARES Act protections? (as of Jul 2022): {propdat['cares_act_july_2022'].values}")
-        st.write(f"Federal housing subsidies? (as of Jul 2022): {propdat['nhpd_july_2022'].values}")
-        st.write(f"Accepted Housing Choice Vouchers (Section 8)?: {propdat['housing_choice_vouchers'].values}")
-    
-        st.subheader('Properties with same owner address:')
-        relatedprops = find_by_owner_add(propdat)
-        st.write(relatedprops)
+        st.write(propdat[['CARES Act protections? (known Jul 2022)', 'NLIHC CARES Act database ID',
+            'Federal housing subsidies? (known Jul 2022)', 'National Housing Preservation Database ID',
+            'Accepted Housing Choice Vouchers (Section 8)?']].transpose())
+        # st.write(f"CARES Act protections? (as of Jul 2022): {propdat['cares_act_july_2022'].values[0]}")
+        # st.write(f"Federal housing subsidies? (as of Jul 2022): {propdat['nhpd_july_2022'].values[0]}")
+        # st.write(f"Accepted Housing Choice Vouchers (Section 8)?: {propdat['housing_choice_vouchers'].values[0]}")
+
+        st.subheader('Other properties with same owner address:')
+        relatedprops = find_by_owner_add(propdat, propid)
+        if relatedprops.empty:
+            st.write('There were no other properties with the _exact_ same owner address.')
+        else:
+            st.write(relatedprops[['parcel_id', 'property_id', 'parcel_address', 'owner_sep_2022',
+                'owner_address', 'dba_sep_2022']].transpose())
 
 
     evdf = get_evictions(propid)
@@ -181,8 +193,8 @@ def streamlit_app():
         st.write('We do not have records (since 2014) of evictions at this property')
     else:
         st.write(f'There have been **{len(evdf)}** evictions at this property since 2014')
-        st.write(f'Here are the case numbers for those evictions')
-        st.write(evdf.tolist())
+        st.write(f'Here are the case numbers for those evictions')        
+        st.write(evdf)
         
 
 if __name__ == "__main__":

@@ -94,10 +94,42 @@ def get_property_data(pid):
     return data
 
 
+@st.cache
+def find_by_owner_add(propdf):
+    owneradd = propdf['owner_address'].values[0]
+    conn = psycopg2.connect(os.getenv('SNAPSHOT_DATABASE_URL'))
+    data = pd.read_sql_query(
+        f"""
+        SELECT * FROM property_snapshot WHERE owner_address='{owneradd}'
+        """,
+        conn
+    )
+    return data
+
+
 def streamlit_app():
     st.title('BASTA Property Snapshot')
-    st.caption('**Instructions:** Type in an address and see all of the related info we have on that property')
-    st.header('Input')
+    
+    st.sidebar.title('About')
+    st.sidebar.info(
+        """
+        This app lets you search properties in Travis county.\n
+        It shows relevant information like the existence of housing subsidies, 
+        Travis CAD owner information, and whether there were evictions at the property.\n
+        It was developed by [BASTA Austin](https://bastaaustin.org)
+        """
+    )
+
+    st.sidebar.title('Contact')
+    st.sidebar.info(
+        """
+        Peishi Cheng\n
+        Data Analyst at BASTA Austin\n
+        pcheng@bastaaustin.org
+        """
+    )
+    
+    st.info('**Instructions:** Type in an address and see all of the related info we have on that property')
     address = st.text_input('Address to search')
 
     st.header('Results')
@@ -137,6 +169,10 @@ def streamlit_app():
         st.write(f"CARES Act protections? (as of Jul 2022): {propdat['cares_act_july_2022'].values}")
         st.write(f"Federal housing subsidies? (as of Jul 2022): {propdat['nhpd_july_2022'].values}")
         st.write(f"Accepted Housing Choice Vouchers (Section 8)?: {propdat['housing_choice_vouchers'].values}")
+    
+        st.subheader('Properties with same owner address:')
+        relatedprops = find_by_owner_add(propdat)
+        st.write(relatedprops)
 
 
     evdf = get_evictions(propid)

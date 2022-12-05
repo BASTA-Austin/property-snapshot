@@ -14,6 +14,7 @@ import shapely
 import googlemaps
 import psycopg2
 import gdown
+from sqlalchemy import create_engine
 # import matplotlib.pyplot as plt
 # import contextily as cx
 
@@ -49,10 +50,20 @@ def geocode_addr(addr):
 
 
 @st.cache
-def sjoin_on_coord(lat, lng, parcels):
-    addy_coords = gpd.points_from_xy([lng], [lat])
-    df = gpd.GeoDataFrame(geometry=addy_coords, crs='EPSG:4326')
-    df = gpd.sjoin(df, parcels, how='left', predicate='within')
+def sjoin_on_coord(lat, lng):
+    dburl = os.getenv('SNAPSHOT_DATABASE_URL')
+    if dburl.startswith("postgres:"):
+        dburl = "postgresql" + dburl[len("postgres"):]
+    conn = create_engine(dburl)
+    sql = f"""
+        SELECT * FROM property_snapshot WHERE
+        ST_Within( ST_SetSRID(ST_Point({lng}, {lat}), 4326), geometry );
+    """
+    df = gpd.GeoDataFrame.from_postgis(sql, conn, geom_col='geometry')      
+    
+    # addy_coords = gpd.points_from_xy([lng], [lat])
+    # df = gpd.GeoDataFrame(geometry=addy_coords, crs='EPSG:4326')
+    # df = gpd.sjoin(df, parcels, how='left', predicate='within')
     if df.empty:
         return None
     else:
@@ -85,15 +96,9 @@ def get_property_data(pid):
 
 def streamlit_app():
     st.title('BASTA Property Snapshot')
-    st.write('**Instructions:** Type in an address and see all of the related info we have on that property')
+    st.caption('**Instructions:** Type in an address and see all of the related info we have on that property')
     st.header('Input')
     address = st.text_input('Address to search')
-    
-    st.header('App status:')
-    data_load_state = st.text('Loading TCAD parcels...')
-
-    parcels = load_parcels()
-    data_load_state.text('TCAD parcels loaded')
 
     st.header('Results')
     if not address:
@@ -107,7 +112,7 @@ def streamlit_app():
     
     st.write('Here\'s a map of your coordinate. Is it what you expected?')
     st.map(df)
-    propid = sjoin_on_coord(lat, lng, parcels)
+    propid = sjoin_on_coord(lat, lng)
     if not propid:
         return
     
@@ -139,7 +144,7 @@ def streamlit_app():
     if evdf.empty:
         st.write('We do not have records (since 2014) of evictions at this property')
     else:
-        st.write(f'There have been {len(evdf)} evictions at this property')
+        st.write(f'There have been **{len(evdf)}** evictions at this property since 2014')
         st.write(f'Here are the case numbers for those evictions')
         st.write(evdf.tolist())
         

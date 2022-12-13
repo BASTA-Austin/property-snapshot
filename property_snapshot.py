@@ -50,7 +50,7 @@ def sjoin_on_coord(lat, lng):
         SELECT * FROM property_snapshot WHERE
         ST_Within( ST_SetSRID(ST_Point({lng}, {lat}), 4326), geometry );
     """
-    df = gpd.GeoDataFrame.from_postgis(sql, conn, geom_col='geometry')      
+    df = gpd.GeoDataFrame.from_postgis(sql, conn, geom_col='geometry')
     if df.empty:
         return None
     else:
@@ -58,11 +58,15 @@ def sjoin_on_coord(lat, lng):
 
 
 @st.cache
-def get_evictions(pid):
+def get_evictions(pid, start, end):
     conn = psycopg2.connect(os.getenv('EVICTIONS_DATABASE_URL'))
     data = pd.read_sql_query(
         f"""
-        SELECT * FROM spatial_joined_data WHERE property_id='{pid}';
+        SELECT cd.case_number, sjd.property_id FROM spatial_joined_data AS sjd
+        LEFT JOIN case_detail AS cd ON cd.case_number=sjd.case_number 
+        WHERE property_id='{pid}'
+        AND TO_DATE(cd.date_filed, 'MM/DD/YYYY') >= '{start.strftime("%Y-%m-%d")}'::date
+        AND TO_DATE(cd.date_filed, 'MM/DD/YYYY') <= '{end.strftime("%Y-%m-%d")}'::date
         """,
         conn
     )
@@ -127,7 +131,7 @@ def streamlit_app():
     accuracy, lat, lng = geocode_addr(address)
     df = pd.DataFrame([[lat, lng]], columns=['lat', 'lon'])
     st.write(f"Accuracy of geocode result: **`{accuracy}`**")
-    st.write(f"Coordinates: **`{lat}`**, **`{lng}`**")
+    st.write(f"Coordinates: **`{lat:.5f}`**, **`{lng:.5f}`**")
 
     if not (lat and lng):
         return
@@ -142,12 +146,10 @@ def streamlit_app():
         st.write(f'Found more than one property: {propid[:]}')
     else:
         propid = propid[0]
-    st.success(f'Found TCAD parcel')
-    st.metric(label='Property ID', value=f'{propid}')
     tcadlink = f'https://stage.travis.prodigycad.com/property-detail/{propid}'
-    st.write(f"TCAD page link: [{tcadlink}]({tcadlink})")
+    st.success(f'_Found TCAD parcel_\n\nProperty ID: **{propid}**\n\nTCAD page link: [{tcadlink}]({tcadlink})')
     propdat = get_property_data(propid)
-    st.subheader('Property Info')
+    st.subheader(f'Property Info    ')
     if propdat.empty:
         st.write('We couldn\'t locate data for that parcel, sorry!')
     else:
@@ -174,9 +176,6 @@ def streamlit_app():
         st.write(propdat[['CARES Act protections? (known Jul 2022)', 'NLIHC CARES Act database ID',
             'Federal housing subsidies? (known Jul 2022)', 'National Housing Preservation Database ID',
             'Accepted Housing Choice Vouchers (Section 8)?']].transpose())
-        # st.write(f"CARES Act protections? (as of Jul 2022): {propdat['cares_act_july_2022'].values[0]}")
-        # st.write(f"Federal housing subsidies? (as of Jul 2022): {propdat['nhpd_july_2022'].values[0]}")
-        # st.write(f"Accepted Housing Choice Vouchers (Section 8)?: {propdat['housing_choice_vouchers'].values[0]}")
 
         st.subheader('Other properties with same owner address:')
         relatedprops = find_by_owner_add(propdat, propid)
@@ -184,19 +183,23 @@ def streamlit_app():
             st.write('There were no other properties with the _exact_ same owner address.')
         else:
             st.write(relatedprops[['parcel_id', 'property_id', 'parcel_address', 'owner_sep_2022',
-                'owner_address', 'dba_sep_2022']].transpose())
+                'owner_address', 'dba_sep_2022']])
 
-
-    evdf = get_evictions(propid)
     st.subheader('Evictions')
+    with st.container():
+        c1, c2 = st.columns(2)
+        with c1:
+            startdate = st.date_input('Evictions start date', value=datetime.date(2014, 1, 1))
+        with c2:
+            enddate = st.date_input('Evictions end date')
+    evdf = get_evictions(propid, startdate, enddate)
     if evdf.empty:
         st.write('We do not have records (since 2014) of evictions at this property')
     else:
-        st.write(f'There have been **{len(evdf)}** evictions at this property since 2014')
+        st.write(f'There have been **{len(evdf)}** evictions at this property in the specified date range')
         st.write(f'Here are the case numbers for those evictions')        
         st.write(evdf)
         
 
 if __name__ == "__main__":
     streamlit_app()
-    print('DEPLOYED')

@@ -58,13 +58,13 @@ def sjoin_on_coord(lat, lng):
 
 
 @st.cache
-def get_evictions(pid, start, end):
+def get_evictions(pids, start, end):
     conn = psycopg2.connect(os.getenv('EVICTIONS_DATABASE_URL'))
     data = pd.read_sql_query(
         f"""
         SELECT cd.case_number, sjd.property_id FROM spatial_joined_data AS sjd
         LEFT JOIN case_detail AS cd ON cd.case_number=sjd.case_number 
-        WHERE property_id='{pid}'
+        WHERE property_id IN ({','.join([repr(x) for x in pids])})
         AND TO_DATE(cd.date_filed, 'MM/DD/YYYY') >= '{start.strftime("%Y-%m-%d")}'::date
         AND TO_DATE(cd.date_filed, 'MM/DD/YYYY') <= '{end.strftime("%Y-%m-%d")}'::date
         """,
@@ -131,6 +131,8 @@ def streamlit_app():
     accuracy, lat, lng = geocode_addr(address)
     df = pd.DataFrame([[lat, lng]], columns=['lat', 'lon'])
     st.write(f"Accuracy of geocode result: **`{accuracy}`**")
+    if not (lat and lng):
+        return
     st.write(f"Coordinates: **`{lat:.5f}`**, **`{lng:.5f}`**")
 
     if not (lat and lng):
@@ -192,14 +194,19 @@ def streamlit_app():
             startdate = st.date_input('Evictions start date', value=datetime.date(2014, 1, 1))
         with c2:
             enddate = st.date_input('Evictions end date')
-    evdf = get_evictions(propid, startdate, enddate)
+    evdf = get_evictions([propid], startdate, enddate)
     if evdf.empty:
         st.write('We do not have records (since 2014) of evictions at this property')
     else:
-        st.write(f'There have been **{len(evdf)}** evictions at this property in the specified date range')
-        st.write(f'Here are the case numbers for those evictions')        
-        st.write(evdf)
-        
+        st.write(f'There have been **{len(evdf)}** evictions at _this property_ in the specified date range')
+        with st.expander('Here are the case numbers for those evictions'):
+            st.write(evdf)
+        if relatedprops.empty:
+            return
+        evdf = get_evictions(relatedprops['property_id'].tolist(), startdate, enddate)
+        st.write(f'There have been **{len(evdf)}** evictions at _all other properties_ with the same owner address in the specified date range')
+        with st.expander('Here are the case numbers for those evictions'):
+            st.write(evdf)
 
 if __name__ == "__main__":
     streamlit_app()

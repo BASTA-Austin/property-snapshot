@@ -193,20 +193,24 @@ def streamlit_app():
         with c1:
             startdate = st.date_input('Evictions start date', value=datetime.date(2014, 1, 1))
         with c2:
-            enddate = st.date_input('Evictions end date')
+            enddate = st.date_input('Evictions end date', value=datetime.date.today())
     evdf = get_evictions([propid], startdate, enddate)
     if evdf.empty:
-        st.write('We do not have records (since 2014) of evictions at this property')
+        st.write('We do not have records (since 2014) of evictions at _this property_')
     else:
         st.write(f'There have been **{len(evdf)}** evictions at _this property_ in the specified date range')
         with st.expander('Here are the case numbers for those evictions'):
             st.write(evdf)
-        if relatedprops.empty:
-            return
+    if relatedprops.empty:
+        pass
+    else:
         evdf = get_evictions(relatedprops['property_id'].tolist(), startdate, enddate)
-        st.write(f'There have been **{len(evdf)}** evictions at _all other properties_ with the same owner address in the specified date range')
-        with st.expander('Here are the case numbers for those evictions'):
-            st.write(evdf)
+        if evdf.empty:
+            st.write('We do not have records (since 2014) of evictions at _other properties with the same owner address_')
+        else:
+            st.write(f'There have been **{len(evdf)}** evictions at _all other properties_ with the same owner address in the specified date range')
+            with st.expander('Here are the case numbers for those evictions'):
+                st.write(evdf)
 
 if __name__ == "__main__":
     streamlit_app()

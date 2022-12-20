@@ -47,10 +47,11 @@ def sjoin_on_coord(lat, lng):
         dburl = "postgresql" + dburl[len("postgres"):]
     conn = create_engine(dburl)
     sql = f"""
-        SELECT * FROM property_snapshot WHERE
+        SELECT property_id FROM property_snapshot WHERE
         ST_Within( ST_SetSRID(ST_Point({lng}, {lat}), 4326), geometry );
-    """
-    df = gpd.GeoDataFrame.from_postgis(sql, conn, geom_col='geometry')
+    """ 
+    df = pd.read_sql_query(sql, conn)
+    # df = gpd.GeoDataFrame.from_postgis(sql, conn, geom_col='geometry')
     if df.empty:
         return None
     else:
